@@ -10,6 +10,8 @@ INFINITY = float('inf')
 HEALTHY = 1
 UNHEALTHY = -1
 
+session = requests.Session()
+
 log = logging.getLogger("nagiosplugin")
 
 
@@ -33,7 +35,7 @@ class MesosMaster(nagiosplugin.Resource):
     log.debug('Looking at %s for redirect', master_uri)
 
     try:
-      response = requests.head(master_uri + '/master/redirect', timeout=5, allow_redirects=False)
+      response = session.head(master_uri + '/master/redirect', timeout=5, allow_redirects=False)
       if response.status_code != 307:
         yield nagiosplugin.Metric('leader redirect', UNHEALTHY)
       log.info('Redirect response is %s', response)
@@ -46,14 +48,14 @@ class MesosMaster(nagiosplugin.Resource):
 
     log.debug('Base URI is redirected to %s', master_uri)
 
-    response = requests.get(master_uri + '/health', timeout=5)
+    response = session.get(master_uri + '/health', timeout=5)
     log.info('Response from %s is %s', response.request.url, response)
     if response.status_code in [200, 204]:
       yield nagiosplugin.Metric('master health', HEALTHY)
     else:
       yield nagiosplugin.Metric('master health', UNHEALTHY)
 
-    response = requests.get(master_uri + '/master/state.json', timeout=5)
+    response = session.get(master_uri + '/master/state.json', timeout=5)
     log.info('Response from %s is %s', response.request.url, response)
     if response.encoding is None:
       response.encoding = "UTF8"
@@ -95,11 +97,18 @@ def main():
                     help='Check that a framework is registered matching the given regex, may be specified multiple times')
   argp.add_argument('-v', '--verbose', action='count', default=0,
                     help='increase output verbosity (use up to 3 times)')
+  argp.add_argument('-u', '--username', help='User which should be used to '
+                                             'authenticate with Mesos.')
+  argp.add_argument('-p', '--password', help='Password which should be used to '
+                                             'authenticate with Mesos.')
 
   args = argp.parse_args()
 
   unhealthy_range = nagiosplugin.Range('%d:%d' % (HEALTHY - 1, HEALTHY + 1))
   slave_range = nagiosplugin.Range('%s:' % (args.slaves,))
+
+  if args.username and args.password:
+    session.auth = args.username, args.password
 
   check = nagiosplugin.Check(
               MesosMaster(args.host, args.port, args.framework),
